@@ -607,6 +607,53 @@ where
             }
         }
 
+          match event {
+        Event::Mouse(mouse::Event::ButtonPressed(Button::Middle)) => {
+            // Start auto scroll mode if inside scrollable area
+            if let Some(pos) = cursor_over_scrollable {
+                state.autoscroll = AutoScrollMode::Active { origin: pos };
+                shell.capture_event();
+            }
+        }
+        Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+            if let AutoScrollMode::Active { origin } = state.autoscroll {
+                if let Some(current) = cursor.position() {
+                    let delta = current - origin;
+                    let scroll_factor = 0.25; // Lower is slower
+                    state.scroll(
+                        self.direction.align(Vector::new(
+                            delta.x * scroll_factor,
+                            delta.y * scroll_factor,
+                        )),
+                        bounds,
+                        content_bounds,
+                    );
+                    let _ = notify_scroll(
+                        state,
+                        &self.on_scroll,
+                        bounds,
+                        content_bounds,
+                        shell,
+                    );
+                    shell.capture_event();
+                }
+            }
+        }
+        Event::Mouse(mouse::Event::ButtonReleased(_))
+        | Event::Mouse(mouse::Event::ButtonPressed(Button::Left))
+        | Event::Mouse(mouse::Event::ButtonPressed(Button::Right))
+        | Event::Keyboard(keyboard::Event::KeyPressed { key_code: KeyCode::PageUp, .. })
+        | Event::Keyboard(keyboard::Event::KeyPressed { key_code: KeyCode::PageDown, .. })
+        | Event::Keyboard(keyboard::Event::KeyPressed { key_code: KeyCode::Escape, .. })
+        => {
+            if let AutoScrollMode::Active { .. } = state.autoscroll {
+                state.autoscroll = AutoScrollMode::Off;
+                shell.capture_event();
+            }
+        }
+        _ => {}
+    }
+
         let mut update = || {
             if let Some(scroller_grabbed_at) = state.y_scroller_grabbed_at {
                 match event {
@@ -834,6 +881,7 @@ where
 
                 return;
             }
+            
 
             match event {
                 Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
@@ -1394,6 +1442,13 @@ fn notify_viewport<Message>(
 }
 
 #[derive(Debug, Clone, Copy)]
+enum AutoScrollMode {
+    Off,
+    Active { origin: Point },
+}
+
+
+#[derive(Debug, Clone, Copy)]
 struct State {
     scroll_area_touched_at: Option<Point>,
     offset_y: Offset,
@@ -1404,6 +1459,10 @@ struct State {
     last_notified: Option<Viewport>,
     last_scrolled: Option<Instant>,
     is_scrollbar_visible: bool,
+
+
+    autoscroll: AutoScrollMode,
+    
 }
 
 impl Default for State {
@@ -1418,6 +1477,7 @@ impl Default for State {
             last_notified: None,
             last_scrolled: None,
             is_scrollbar_visible: true,
+            autoscroll: AutoScrollMode::Off,
         }
     }
 }
